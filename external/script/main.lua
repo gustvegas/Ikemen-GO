@@ -137,9 +137,10 @@ function main.f_buildAutoImportSections(content)
 		local files = listZipFiles(dir)
 		local lines = {}
 		for _, file in ipairs(files) do
-			local normalized = main.f_normalizePath(file):lower()
+			local clean = tostring(main.f_normalizePath(file))
+			local normalized = clean:lower()
 			if normalized ~= '' and not existing[kind][normalized] then
-				table.insert(lines, main.f_normalizePath(file))
+				table.insert(lines, clean)
 				existing[kind][normalized] = true
 			end
 		end
