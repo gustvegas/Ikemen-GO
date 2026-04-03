@@ -80,6 +80,84 @@ function main.f_fileExists(file)
 	return fileExists(file)
 end
 
+main.t_autoImportFolders = {
+	chars = 'autoload/chars',
+	stages = 'autoload/stages'
+}
+
+function main.f_trim(str)
+	return (str or ''):match('^%s*(.-)%s*$')
+end
+
+function main.f_normalizePath(path)
+	return (main.f_trim(path):gsub('\\', '/'))
+end
+
+function main.f_collectExistingSelectEntries(content)
+	local entries = {chars = {}, stages = {}}
+	local section = 0
+	local language = gameOption('Config.Language'):lower()
+
+	for rawLine in content:gmatch('[^\r\n]+') do
+		local line = rawLine:gsub('([^\r\n;]*)%s*;[^\r\n]*', '%1')
+		local lineCase = line:lower()
+		if lineCase:match('^%s*%[%s*characters%s*%]') or lineCase:match('^%s*%[%s*' .. language .. '.characters%s*%]') then
+			section = 1
+		elseif lineCase:match('^%s*%[%s*extrastages%s*%]') or lineCase:match('^%s*%[%s*' .. language .. '.extrastages%s*%]') then
+			section = 2
+		elseif lineCase:match('^%s*%[[^%]]+%]%s*$') then
+			section = -1
+		elseif section == 1 or section == 2 then
+			local first = main.f_trim(main.f_strsplit(',', line)[1] or '')
+			if first ~= '' and first ~= '}' and not first:match('^slot%s*=') then
+				first = main.f_normalizePath(first):lower()
+				if section == 1 then
+					entries.chars[first] = true
+				else
+					entries.stages[first] = true
+				end
+			end
+		end
+	end
+
+	return entries
+end
+
+function main.f_buildAutoImportSections(content)
+	local existing = main.f_collectExistingSelectEntries(content)
+	local blocks = {}
+
+	for _, sectionInfo in ipairs({
+		{kind = 'chars', sectionName = 'Characters'},
+		{kind = 'stages', sectionName = 'ExtraStages'}
+	}) do
+		local kind = sectionInfo.kind
+		local dir = main.t_autoImportFolders[kind]
+		ensureDirectory(dir)
+		local files = listZipFiles(dir)
+		local lines = {}
+		for _, file in ipairs(files) do
+			local normalized = main.f_normalizePath(file):lower()
+			if normalized ~= '' and not existing[kind][normalized] then
+				table.insert(lines, main.f_normalizePath(file))
+				existing[kind][normalized] = true
+			end
+		end
+		if #lines > 0 then
+			table.insert(blocks, '; Auto-imported ZIP packages from ' .. dir)
+			table.insert(blocks, '[' .. sectionInfo.sectionName .. ']')
+			for _, line in ipairs(lines) do
+				table.insert(blocks, line)
+			end
+		end
+	end
+
+	if #blocks == 0 then
+		return content
+	end
+	return content .. '\n\n' .. table.concat(blocks, '\n')
+end
+
 --prints "t" table content into "toFile" file
 function main.f_printTable(t, toFile)
 	local txt = ''
@@ -1159,6 +1237,7 @@ local row = 0
 local slot = false
 local csCell = 0
 local content = main.f_fileRead(motif.files.select)
+content = main.f_buildAutoImportSections(content)
 content = content:gsub('([^\r\n;]*)%s*;[^\r\n]*', '%1')
 content = content:gsub('\n%s*\n', '\n')
 

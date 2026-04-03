@@ -1,7 +1,6 @@
 package main
 
 import (
-	"archive/zip"
 	"bytes"
 	"encoding/base64"
 	"encoding/binary"
@@ -12,7 +11,6 @@ import (
 	"image/draw"
 	_ "image/jpeg"
 	"io"
-	"io/fs"
 	"math"
 	"os"
 	"path"
@@ -410,27 +408,28 @@ func loadglTFModel(filepath string) (*Model, error) {
 	var err error
 
 	if isZip {
-		// Handle resources within a ZIP file
-		zipReader, errOpen := zip.OpenReader(zipPath)
+		fsys, closer, errOpen := openArchiveFS(zipPath)
 		if errOpen != nil {
-			return nil, fmt.Errorf("Failed to open ZIP archive '%s': %w", zipPath, errOpen)
+			return nil, fmt.Errorf("Failed to open archive '%s': %w", zipPath, errOpen)
 		}
-		defer zipReader.Close()
+		defer closer.Close()
+		resolvedPath, errOpen := findArchiveEntryPath(fsys, pathInZip)
+		if errOpen != nil || resolvedPath == "" {
+			return nil, fmt.Errorf("Failed to locate GLB file '%s' in archive '%s': %w", pathInZip, zipPath, errOpen)
+		}
 
-		var fsys fs.FS = &zipReader.Reader // The zip.Reader implements fs.FS for resource resolution within the archive
-
-		// Open the GLB/glTF file from within the zip
-		glbFile, errOpen := fsys.Open(pathInZip)
+		// Open the GLB/glTF file from within the archive
+		glbFile, errOpen := fsys.Open(resolvedPath)
 		if errOpen != nil {
-			return nil, fmt.Errorf("Failed to open GLB file '%s' in ZIP '%s': %w", pathInZip, zipPath, errOpen)
+			return nil, fmt.Errorf("Failed to open GLB file '%s' in archive '%s': %w", resolvedPath, zipPath, errOpen)
 		}
 		defer glbFile.Close()
 
-		// Create a new decoder with the file stream and the zip archive as the file system
+		// Create a new decoder with the file stream and the archive as the file system
 		decoder := gltf.NewDecoderFS(glbFile, fsys)
 		doc = new(gltf.Document)
 		if err = decoder.Decode(doc); err != nil {
-			return nil, fmt.Errorf("failed to decode gltf from zip '%s': %w", filepath, err)
+			return nil, fmt.Errorf("failed to decode gltf from archive '%s': %w", filepath, err)
 		}
 	} else {
 		// Handle resources from the standard file system

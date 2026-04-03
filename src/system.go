@@ -4296,20 +4296,20 @@ func (s *Select) AddChar(def string) *SelectChar {
 	}()
 
 	var finalDefPath string
-	isZipChar := strings.HasSuffix(strings.ToLower(defPathFromSelect), ".zip")
+	isZipChar := HasSupportedArchiveExtension(defPathFromSelect)
 
 	if isZipChar {
 		zipSearchDirs := []string{"chars/", "data/", ""}
 		var actualZipPathOnDisk string
 
 		if filepath.IsAbs(defPathFromSelect) {
-			if foundPath := FileExist(defPathFromSelect); foundPath != "" && strings.HasSuffix(strings.ToLower(foundPath), ".zip") {
+			if foundPath := FileExist(defPathFromSelect); foundPath != "" && HasSupportedArchiveExtension(foundPath) {
 				actualZipPathOnDisk = foundPath
 			}
 		} else {
 			for _, dir := range zipSearchDirs {
 				candidateZipPath := filepath.ToSlash(filepath.Join(dir, defPathFromSelect))
-				if foundPath := FileExist(candidateZipPath); foundPath != "" && strings.HasSuffix(strings.ToLower(foundPath), ".zip") {
+				if foundPath := FileExist(candidateZipPath); foundPath != "" && HasSupportedArchiveExtension(foundPath) {
 					actualZipPathOnDisk = foundPath
 					break
 				}
@@ -4320,19 +4320,10 @@ func (s *Select) AddChar(def string) *SelectChar {
 			return useDummy("ZIP not found")
 		}
 
-		defInZip1, defInZip2 := getDefaultDefPathInZip(actualZipPathOnDisk)
-
-		// Construct logical paths for FileExist to check *inside* the zip
-		candidateLogicalPath1 := filepath.ToSlash(actualZipPathOnDisk + "/" + defInZip1)
-		if FileExist(candidateLogicalPath1) != "" { // FileExist checks inside the zip now
-			finalDefPath = candidateLogicalPath1
-		} else {
-			candidateLogicalPath2 := filepath.ToSlash(actualZipPathOnDisk + "/" + defInZip2)
-			if FileExist(candidateLogicalPath2) != "" {
-				finalDefPath = candidateLogicalPath2
-			} else {
-				return useDummy(fmt.Sprintf("DEF in ZIP missing: %s or %s", defInZip1, defInZip2))
-			}
+		var err error
+		finalDefPath, err = ResolveMainDefInArchive(actualZipPathOnDisk)
+		if err != nil {
+			return useDummy("ZIP DEF resolution failed: " + err.Error())
 		}
 	} else {
 		charDefPathGuess := defPathFromSelect
@@ -4638,20 +4629,20 @@ func (s *Select) AddStage(def string) (*SelectStage, error) {
 	tstr = fmt.Sprintf("Stage added: %v", defPathFromSelect)
 
 	var finalDefPath string
-	isZipStage := strings.HasSuffix(strings.ToLower(defPathFromSelect), ".zip")
+	isZipStage := HasSupportedArchiveExtension(defPathFromSelect)
 
 	if isZipStage {
 		zipSearchDirs := []string{"stages/", "data/", ""}
 		var actualZipPathOnDisk string
 
 		if filepath.IsAbs(defPathFromSelect) {
-			if foundPath := FileExist(defPathFromSelect); foundPath != "" && strings.HasSuffix(strings.ToLower(foundPath), ".zip") {
+			if foundPath := FileExist(defPathFromSelect); foundPath != "" && HasSupportedArchiveExtension(foundPath) {
 				actualZipPathOnDisk = foundPath
 			}
 		} else {
 			for _, dir := range zipSearchDirs {
 				candidateZipPath := filepath.ToSlash(filepath.Join(dir, defPathFromSelect))
-				if foundPath := FileExist(candidateZipPath); foundPath != "" && strings.HasSuffix(strings.ToLower(foundPath), ".zip") {
+				if foundPath := FileExist(candidateZipPath); foundPath != "" && HasSupportedArchiveExtension(foundPath) {
 					actualZipPathOnDisk = foundPath
 					break
 				}
@@ -4664,20 +4655,11 @@ func (s *Select) AddStage(def string) (*SelectStage, error) {
 			return nil, err
 		}
 
-		defInZip1, defInZip2 := getDefaultDefPathInZip(actualZipPathOnDisk)
-
-		candidateLogicalPath1 := filepath.ToSlash(actualZipPathOnDisk + "/" + defInZip1)
-		if FileExist(candidateLogicalPath1) != "" {
-			finalDefPath = candidateLogicalPath1
-		} else {
-			candidateLogicalPath2 := filepath.ToSlash(actualZipPathOnDisk + "/" + defInZip2)
-			if FileExist(candidateLogicalPath2) != "" {
-				finalDefPath = candidateLogicalPath2
-			} else {
-				err := fmt.Errorf("DEF file not found in ZIP: %s or %s", defInZip1, defInZip2)
-				LogMessage("Failed to add stage. DEF file not found in %v: %v or %v", defPathFromSelect, defInZip1, defInZip2)
-				return nil, err
-			}
+		var err error
+		finalDefPath, err = ResolveMainDefInArchive(actualZipPathOnDisk)
+		if err != nil {
+			LogMessage("Failed to add stage. ZIP DEF resolution failed in %v: %v", defPathFromSelect, err)
+			return nil, err
 		}
 	} else {
 		if !strings.HasSuffix(strings.ToLower(def), ".def") {
@@ -4708,6 +4690,36 @@ func (s *Select) AddStage(def string) (*SelectStage, error) {
 	}
 
 	tstr = fmt.Sprintf("Stage added: %v", finalDefPath)
+
+	resolvePathRelativeToDef := func(pathInDefFile string) string {
+		isZipDef, zipArchiveOfDef, defSubPathInZip := IsZipPath(finalDefPath)
+		pathInDefFile = filepath.ToSlash(pathInDefFile)
+
+		if filepath.IsAbs(pathInDefFile) {
+			return pathInDefFile
+		}
+
+		if isZipRel, _, _ := IsZipPath(pathInDefFile); isZipRel {
+			return pathInDefFile
+		}
+
+		isEngineRootRelative := strings.HasPrefix(pathInDefFile, "data/") ||
+			strings.HasPrefix(pathInDefFile, "font/") ||
+			strings.HasPrefix(pathInDefFile, "stages/")
+
+		if isZipDef {
+			if isEngineRootRelative {
+				return pathInDefFile
+			}
+			baseDirWithinZip := filepath.ToSlash(filepath.Dir(defSubPathInZip))
+			if baseDirWithinZip == "." || baseDirWithinZip == "" {
+				return filepath.ToSlash(filepath.Join(zipArchiveOfDef, pathInDefFile))
+			}
+			return filepath.ToSlash(filepath.Join(zipArchiveOfDef, baseDirWithinZip, pathInDefFile))
+		}
+
+		return pathInDefFile
+	}
 
 	lnidx, info, bgdef, stageinfo := 0, true, true, true
 	lanInfo, lanBgdef, lanStageinfo := true, true, true
@@ -4808,7 +4820,8 @@ func (s *Select) AddStage(def string) (*SelectStage, error) {
 			}
 		}
 		// preload portion of sff file
-		LoadFile(&spr, []string{def, "", "data/"}, func(file string) error {
+		resolvedSprPath := resolvePathRelativeToDef(spr)
+		LoadFile(&resolvedSprPath, []string{finalDefPath, "", "data/"}, func(file string) error {
 			var err error
 			ss.sff, _, err = preloadSff(file, false, listSpr)
 			if err != nil {

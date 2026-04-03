@@ -8,6 +8,7 @@ vendor/*
 *.bat
 /*.sh
 !build/**/*.sh
+!setup-intel.sh
 *.png
 save/*
 Ikemen_GO.exe
@@ -67,6 +68,21 @@ bin/libmain.h
 lib/*.so
 lib/*.so.*
 build/android-apk/
+
+# Compiled binaries (platform-specific, not tracked)
+bin/Ikemen_GO_MacOS
+bin/Ikemen_GO_MacOSARM
+bin/Ikemen_GO_Linux
+bin/Ikemen_GO_LinuxARM
+
+# Native dylibs (compiled locally, not tracked)
+lib/*.dylib
+lib/*.dylib.*
+
+# Local build environment (paths are machine-specific)
+build/local-env.sh
+build/screenpack/
+build/test-imports/
 
 # Binaries
 build/android-deps/

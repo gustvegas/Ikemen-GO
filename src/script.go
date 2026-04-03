@@ -2446,6 +2446,52 @@ func systemScriptInit(l *lua.LState) {
 		l.Push(lua.LBool(FileExist(path) != ""))
 		return 1
 	})
+	luaRegister(l, "ensureDirectory", func(l *lua.LState) int {
+		/*Create a directory if it does not exist.
+		@function ensureDirectory
+		@tparam string path Directory path to create.
+		@treturn boolean success `true` if the directory exists or was created successfully.
+		function ensureDirectory(path) end*/
+		path := filepath.Clean(strArg(l, 1))
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			LogMessage("Failed to create directory %v: %v", path, err)
+			l.Push(lua.LBool(false))
+			return 1
+		}
+		l.Push(lua.LBool(true))
+		return 1
+	})
+	luaRegister(l, "listZipFiles", func(l *lua.LState) int {
+		/*List supported archive files recursively inside a directory.
+		@function listZipFiles
+		@tparam string path Directory path to scan.
+		@treturn table files Array of `.zip` and `.rar` file paths sorted alphabetically.
+		function listZipFiles(path) end*/
+		root := filepath.Clean(strArg(l, 1))
+		files := make([]string, 0)
+		if err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			nameLower := strings.ToLower(d.Name())
+			if strings.HasSuffix(nameLower, ".zip") || strings.HasSuffix(nameLower, ".rar") {
+				files = append(files, filepath.ToSlash(path))
+			}
+			return nil
+		}); err != nil && !os.IsNotExist(err) {
+			LogMessage("Failed to scan ZIP directory %v: %v", root, err)
+		}
+		sort.Strings(files)
+		tbl := l.CreateTable(len(files), 0)
+		for _, file := range files {
+			tbl.Append(lua.LString(file))
+		}
+		l.Push(tbl)
+		return 1
+	})
 	luaRegister(l, "findEntityByName", func(*lua.LState) int {
 		/*Find the next entity whose name contains the given text.
 		@function findEntityByName

@@ -16,6 +16,14 @@ Download the ZIP archive that matches your operating system and extract its cont
 On Windows, double-click `Ikemen_GO.exe`.
 On macOS or Linux, double-click `Ikemen_GO.command`.
 
+## Auto-importing packaged characters and stages
+This fork can auto-register packaged characters and stages without editing `select.def`.
+
+- Put character `.zip` or `.rar` files in `autoload/chars/`
+- Put stage `.zip` or `.rar` files in `autoload/stages/`
+- They are appended automatically at startup using the same `addChar` / `addStage` flow as `select.def`
+- Manual `select.def` entries still win, and matching archive paths are not added twice
+
 ## Developing
 These instructions are for those interested in developing the Ikemen GO engine itself. Instructions for creating custom stages, fonts, characters and other resources can be found in the community forum.
 
